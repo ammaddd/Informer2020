@@ -1,3 +1,5 @@
+from comet_ml import Experiment
+experiment = Experiment()
 import argparse
 import os
 import torch
@@ -67,6 +69,9 @@ if args.data in data_parser.keys():
 
 print('Args in experiment:')
 print(args)
+experiment.log_others(vars(args))
+experiment.add_tags([args.data_path])
+experiment.log_code('exp/exp_informer.py')
 
 Exp = Exp_Informer
 
@@ -78,7 +83,7 @@ for ii in range(args.itr):
 
     exp = Exp(args) # set experiments
     print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
-    exp.train(setting)
+    exp.train(setting, experiment)
     
     print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
     exp.test(setting)

@@ -130,7 +130,7 @@ class Exp_Informer(Exp_Basic):
         self.model.train()
         return total_loss
         
-    def train(self, setting):
+    def train(self, setting, experiment):
         train_data, train_loader = self._get_data(flag = 'train')
         vali_data, vali_loader = self._get_data(flag = 'val')
         test_data, test_loader = self._get_data(flag = 'test')
@@ -146,55 +146,69 @@ class Exp_Informer(Exp_Basic):
         
         model_optim = self._select_optimizer()
         criterion =  self._select_criterion()
-
+        
         for epoch in range(self.args.train_epochs):
-            iter_count = 0
-            train_loss = []
-            
-            self.model.train()
-            for i, (batch_x,batch_y,batch_x_mark,batch_y_mark) in enumerate(train_loader):
-                iter_count += 1
+            with experiment.context_manager("train"):
+                experiment.set_epoch(epoch+1)
+                iter_count = 0
+                train_loss = []
                 
-                model_optim.zero_grad()
-                
-                batch_x = batch_x.double().to(self.device)
-                batch_y = batch_y.double()
-                
-                batch_x_mark = batch_x_mark.double().to(self.device)
-                batch_y_mark = batch_y_mark.double().to(self.device)
+                self.model.train()
+                for i, (batch_x,batch_y,batch_x_mark,batch_y_mark) in enumerate(train_loader):
+                    iter_count += 1
+                    
+                    model_optim.zero_grad()
+                    
+                    batch_x = batch_x.double().to(self.device)
+                    batch_y = batch_y.double()
+                    
+                    batch_x_mark = batch_x_mark.double().to(self.device)
+                    batch_y_mark = batch_y_mark.double().to(self.device)
 
-                # decoder input
-                dec_inp = torch.zeros_like(batch_y[:,-self.args.pred_len:,:]).double()
-                dec_inp = torch.cat([batch_y[:,:self.args.label_len,:], dec_inp], dim=1).double().to(self.device)
-                # encoder - decoder
-                if self.args.output_attention:
-                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
-                else:
-                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                    # decoder input
+                    dec_inp = torch.zeros_like(batch_y[:,-self.args.pred_len:,:]).double()
+                    dec_inp = torch.cat([batch_y[:,:self.args.label_len,:], dec_inp], dim=1).double().to(self.device)
+                    # encoder - decoder
+                    if self.args.output_attention:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                    else:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
-                f_dim = -1 if self.args.features=='MS' else 0
-                batch_y = batch_y[:,-self.args.pred_len:,f_dim:].to(self.device)
-                loss = criterion(outputs, batch_y)
-                train_loss.append(loss.item())
-                
-                if (i+1) % 100==0:
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    speed = (time.time()-time_now)/iter_count
-                    left_time = speed*((self.args.train_epochs - epoch)*train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                    iter_count = 0
-                    time_now = time.time()
-                
-                loss.backward()
-                model_optim.step()
+                    f_dim = -1 if self.args.features=='MS' else 0
+                    batch_y = batch_y[:,-self.args.pred_len:,f_dim:].to(self.device)
+                    loss = criterion(outputs, batch_y)
+                    train_loss.append(loss.item())
+                    experiment.log_metric("loss", loss.item(),
+                                        step=(i+1)*(epoch+1),
+                                        epoch=epoch+1)
+                    
+                    if (i+1) % 100==0:
+                        print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                        speed = (time.time()-time_now)/iter_count
+                        left_time = speed*((self.args.train_epochs - epoch)*train_steps - i)
+                        print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                        iter_count = 0
+                        time_now = time.time()
+                    
+                    loss.backward()
+                    model_optim.step()
 
             train_loss = np.average(train_loss)
-            vali_loss = self.vali(vali_data, vali_loader, criterion)
-            test_loss = self.vali(test_data, test_loader, criterion)
+            with experiment.context_manager("val"):
+                experiment.set_epoch(epoch+1)
+                vali_loss = self.vali(vali_data, vali_loader, criterion)
+                experiment.log_metric("loss", vali_loss,
+                                      epoch=epoch+1)
+
+            with experiment.context_manager("test"):
+                experiment.set_epoch(epoch+1)
+                test_loss = self.vali(test_data, test_loader, criterion)
+                experiment.log_metric("loss", test_loss,
+                                      epoch=epoch+1)
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
-            early_stopping(vali_loss, self.model, path)
+            early_stopping(vali_loss, self.model, path, experiment)
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
