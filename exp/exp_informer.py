@@ -179,8 +179,8 @@ class Exp_Informer(Exp_Basic):
                     loss = criterion(outputs, batch_y)
                     train_loss.append(loss.item())
                     experiment.log_metric("loss", loss.item(),
-                                        step=(i+1)*(epoch+1),
-                                        epoch=epoch+1)
+                                          step=epoch*len(train_loader)+i,
+                                          epoch=epoch+1)
                     
                     if (i+1) % 100==0:
                         print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
