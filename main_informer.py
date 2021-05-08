@@ -1,5 +1,4 @@
-from comet_ml import Experiment
-experiment = Experiment()
+from utils.comet_utils import CometLogger
 import argparse
 import os
 import torch
@@ -51,6 +50,8 @@ parser.add_argument('--lradj', type=str, default='type1',help='adjust learning r
 parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
 parser.add_argument('--gpu', type=int, default=0, help='gpu')
 
+parser.add_argument('--comet', type=bool, default=False, help='enable comet logging')
+
 args = parser.parse_args()
 
 args.use_gpu = True if torch.cuda.is_available() else False
@@ -69,9 +70,11 @@ if args.data in data_parser.keys():
 
 print('Args in experiment:')
 print(args)
-experiment.log_others(vars(args))
-experiment.add_tags([args.data_path])
-experiment.log_code('exp/exp_informer.py')
+
+comet_logger = CometLogger(args.comet)
+comet_logger.log_others(vars(args))
+comet_logger.add_tags([args.data_path])
+comet_logger.log_code('exp/exp_informer.py')
 
 Exp = Exp_Informer
 
@@ -83,7 +86,7 @@ for ii in range(args.itr):
 
     exp = Exp(args) # set experiments
     print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
-    exp.train(setting, experiment)
+    exp.train(setting, comet_logger)
     
     print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
     exp.test(setting)

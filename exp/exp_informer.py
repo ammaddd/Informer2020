@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
+from contextlib import suppress
 
 import os
 import time
@@ -130,7 +131,7 @@ class Exp_Informer(Exp_Basic):
         self.model.train()
         return total_loss
         
-    def train(self, setting, experiment):
+    def train(self, setting, comet_logger):
         train_data, train_loader = self._get_data(flag = 'train')
         vali_data, vali_loader = self._get_data(flag = 'val')
         test_data, test_loader = self._get_data(flag = 'test')
@@ -148,8 +149,12 @@ class Exp_Informer(Exp_Basic):
         criterion =  self._select_criterion()
         
         for epoch in range(self.args.train_epochs):
-            with experiment.context_manager("train"):
-                experiment.set_epoch(epoch+1)
+            context_manager = comet_logger.context_manager("train") \
+                              if comet_logger.is_logging() == True \
+                              else suppress()
+
+            with context_manager:
+                comet_logger.set_epoch(epoch+1)
                 iter_count = 0
                 train_loss = []
                 
@@ -178,9 +183,9 @@ class Exp_Informer(Exp_Basic):
                     batch_y = batch_y[:,-self.args.pred_len:,f_dim:].to(self.device)
                     loss = criterion(outputs, batch_y)
                     train_loss.append(loss.item())
-                    experiment.log_metric("loss", loss.item(),
-                                        step=(i+1)*(epoch+1),
-                                        epoch=epoch+1)
+                    comet_logger.log_metric("loss", loss.item(),
+                                            step=(i+1)*(epoch+1),
+                                            epoch=epoch+1)
                     
                     if (i+1) % 100==0:
                         print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
@@ -194,21 +199,29 @@ class Exp_Informer(Exp_Basic):
                     model_optim.step()
 
             train_loss = np.average(train_loss)
-            with experiment.context_manager("val"):
-                experiment.set_epoch(epoch+1)
-                vali_loss = self.vali(vali_data, vali_loader, criterion)
-                experiment.log_metric("loss", vali_loss,
-                                      epoch=epoch+1)
+            context_manager = comet_logger.context_manager("val") \
+                              if comet_logger.is_logging() == True \
+                              else suppress()
 
-            with experiment.context_manager("test"):
-                experiment.set_epoch(epoch+1)
+            with context_manager:
+                comet_logger.set_epoch(epoch+1)
+                vali_loss = self.vali(vali_data, vali_loader, criterion)
+                comet_logger.log_metric("loss", vali_loss,
+                                        epoch=epoch+1)
+
+            context_manager = comet_logger.context_manager("test") \
+                              if comet_logger.is_logging() == True \
+                              else suppress()
+
+            with context_manager:
+                comet_logger.set_epoch(epoch+1)
                 test_loss = self.vali(test_data, test_loader, criterion)
-                experiment.log_metric("loss", test_loss,
-                                      epoch=epoch+1)
+                comet_logger.log_metric("loss", test_loss,
+                                        epoch=epoch+1)
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
-            early_stopping(vali_loss, self.model, path, experiment)
+            early_stopping(vali_loss, self.model, path, comet_logger)
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
